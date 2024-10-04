@@ -33,3 +33,10 @@ $ sudo apt-get install udevil
 # Install `flip-link`
 $ cargo install flip-link
 ```
+
+## Usage
+1. Find the correct device
+```
+udevil mount /dev/sdX1
+```
+
