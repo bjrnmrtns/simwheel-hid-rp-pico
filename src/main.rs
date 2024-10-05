@@ -5,21 +5,27 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::gpio::{Level, Input, Pull};
+use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
+use embassy_rp::gpio::{Input, Pull};
 use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver, InterruptHandler};
-use embassy_time::{Duration, Timer};
-use embassy_futures::join::join;
+use embassy_time::Instant;
+use embassy_usb::class::hid::{HidReaderWriter, ReportId, RequestHandler, State};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, Handler};
-use embassy_usb::class::hid::{HidReaderWriter, ReportId, RequestHandler, State};
 use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => InterruptHandler<USB>;
 });
+
+struct GpioInfo {
+    pub last_time: Instant,
+    pub keycode: u8,
+    pub previous: bool,
+}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -33,17 +39,16 @@ async fn main(_spawner: Spawner) {
     config.serial_number = Some("12345678");
     config.max_power = 100;
     config.max_packet_size_0 = 64;
-    
+
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
-    // You can also add a Microsoft OS descriptor.
     let mut msos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
     let mut request_handler = MyRequestHandler {};
     let mut device_handler = MyDeviceHandler::new();
 
     let mut state = State::new();
-    
+
     let mut builder = Builder::new(
         driver,
         config,
@@ -52,62 +57,64 @@ async fn main(_spawner: Spawner) {
         &mut msos_descriptor,
         &mut control_buf,
     );
-    
+
     builder.handler(&mut device_handler);
 
-    // Create classes on the builder.
     let config = embassy_usb::class::hid::Config {
         report_descriptor: KeyboardReport::desc(),
         request_handler: None,
-        poll_ms: 60,
+        poll_ms: 1,
         max_packet_size: 64,
     };
     let hid = HidReaderWriter::<_, 1, 8>::new(&mut builder, &mut state, config);
 
     // Build the builder.
     let mut usb = builder.build();
-
-    // Run the USB device.
+        
     let usb_fut = usb.run();
 
-    // Set up the signal pin that will be used to trigger the keyboard.
-    let mut signal_pin = Input::new(p.PIN_16, Pull::Up);
-
-    // Enable the schmitt trigger to slightly debounce.
-    signal_pin.set_schmitt(true);
+    let mut gpio0 = Input::new(p.PIN_18, Pull::Up);
+    let mut gpio1 = Input::new(p.PIN_19, Pull::Up);
+    gpio0.set_schmitt(true);
+    gpio1.set_schmitt(true);
 
     let (reader, mut writer) = hid.split();
+
+    let now = Instant::now();
+
+    let mut gpio_info = [GpioInfo { keycode: 0x04, last_time: now, previous: false }, GpioInfo { keycode: 0x05, last_time: now, previous: false }];
 
     // Do stuff with the class!
     let in_fut = async {
         loop {
-            info!("Waiting for HIGH on pin 16");
-            signal_pin.wait_for_low().await;
-            info!("HIGH DETECTED");
-            // Create a report with the A key pressed. (no shift modifier)
-            let report = KeyboardReport {
-                keycodes: [4, 0, 0, 0, 0, 0],
-                leds: 0,
-                modifier: 0,
-                reserved: 0,
-            };
-            // Send the report.
-            match writer.write_serialize(&report).await {
-                Ok(()) => {}
-                Err(e) => warn!("Failed to send report: {:?}", e),
-            };
-            signal_pin.wait_for_high().await;
-            info!("LOW DETECTED");
-            let report = KeyboardReport {
-                keycodes: [0, 0, 0, 0, 0, 0],
-                leds: 0,
-                modifier: 0,
-                reserved: 0,
-            };
-            match writer.write_serialize(&report).await {
-                Ok(()) => {}
-                Err(e) => warn!("Failed to send report: {:?}", e),
-            };
+            let (_, index) = embassy_futures::select::select_array([
+                gpio0.wait_for_any_edge(),
+                gpio1.wait_for_any_edge(),
+            ]).await;
+            let now = Instant::now();
+            if (now - gpio_info[index].last_time).as_micros() > 2000 {
+                gpio_info[index].last_time = now;
+                let report = KeyboardReport {
+                    keycodes: [gpio_info[index].keycode, 0, 0, 0, 0, 0],
+                    leds: 0,
+                    modifier: 0,
+                    reserved: 0,
+                };
+                match writer.write_serialize(&report).await {
+                    Ok(()) => {}
+                    Err(e) => warn!("Failed to send report: {:?}", e),
+                };
+                let report = KeyboardReport {
+                    keycodes: [0, 0, 0, 0, 0, 0],
+                    leds: 0,
+                    modifier: 0,
+                    reserved: 0,
+                };
+                match writer.write_serialize(&report).await {
+                    Ok(()) => {}
+                    Err(e) => warn!("Failed to send report: {:?}", e),
+                };
+            }
         }
     };
 
@@ -115,8 +122,6 @@ async fn main(_spawner: Spawner) {
         reader.run(false, &mut request_handler).await;
     };
 
-    // Run everything concurrently.
-    // If we had made everything `'static` above instead, we could do this using separate tasks instead.
     join(usb_fut, join(in_fut, out_fut)).await;
 }
 
@@ -178,7 +183,9 @@ impl Handler for MyDeviceHandler {
     fn configured(&mut self, configured: bool) {
         self.configured.store(configured, Ordering::Relaxed);
         if configured {
-            info!("Device configured, it may now draw up to the configured current limit from Vbus.")
+            info!(
+                "Device configured, it may now draw up to the configured current limit from Vbus."
+            )
         } else {
             info!("Device is no longer configured, the Vbus current limit is 100mA.");
         }
