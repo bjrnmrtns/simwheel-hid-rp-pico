@@ -78,9 +78,9 @@ async fn main(_spawner: Spawner) {
 
     let driver = Driver::new(p.USB, Irqs);
     let mut config = Config::new(0xc0de, 0xcafe);
-    config.manufacturer = Some("Embassy");
-    config.product = Some("HID keyboard example");
-    config.serial_number = Some("12345678");
+    config.manufacturer = Some("Bor(TM)");
+    config.product = Some("Simwheel");
+    config.serial_number = Some("0xCAFEBABE");
     config.max_power = 100;
     config.max_packet_size_0 = 64;
 
@@ -117,17 +117,101 @@ async fn main(_spawner: Spawner) {
         
     let usb_fut = usb.run();
 
-    let mut gpio0 = Input::new(p.PIN_18, Pull::Up);
-    let mut gpio1 = Input::new(p.PIN_19, Pull::Up);
+    let mut gpio0 = Input::new(p.PIN_0, Pull::Up);
+    let mut gpio1 = Input::new(p.PIN_1, Pull::Up);
+    let mut gpio2 = Input::new(p.PIN_2, Pull::Up);
+    let mut gpio3 = Input::new(p.PIN_3, Pull::Up);
+    let mut gpio4 = Input::new(p.PIN_4, Pull::Up);
+    let mut gpio5 = Input::new(p.PIN_5, Pull::Up);
+    let mut gpio6 = Input::new(p.PIN_6, Pull::Up);
+    let mut gpio7 = Input::new(p.PIN_7, Pull::Up);
+    let mut gpio8 = Input::new(p.PIN_8, Pull::Up);
+    let mut gpio9 = Input::new(p.PIN_9, Pull::Up);
+    let mut gpio10 = Input::new(p.PIN_10, Pull::Up);
+    let mut gpio11 = Input::new(p.PIN_11, Pull::Up);
+    let mut gpio12 = Input::new(p.PIN_12, Pull::Up);
+    let mut gpio13 = Input::new(p.PIN_13, Pull::Up);
+    let mut gpio14 = Input::new(p.PIN_14, Pull::Up);
+    let mut gpio15 = Input::new(p.PIN_15, Pull::Up);
+    let mut gpio16 = Input::new(p.PIN_16, Pull::Up);
+    let mut gpio17 = Input::new(p.PIN_17, Pull::Up);
+    let mut gpio18 = Input::new(p.PIN_18, Pull::Up);
+    let mut gpio19 = Input::new(p.PIN_19, Pull::Up);
+    let mut gpio20 = Input::new(p.PIN_20, Pull::Up);
+    let mut gpio21 = Input::new(p.PIN_21, Pull::Up);
+    let mut gpio22 = Input::new(p.PIN_22, Pull::Up);
+    let mut gpio23 = Input::new(p.PIN_23, Pull::Up);
+    let mut gpio24 = Input::new(p.PIN_24, Pull::Up);
+    let mut gpio25 = Input::new(p.PIN_25, Pull::Up);
+    let mut gpio26 = Input::new(p.PIN_26, Pull::Up);
+    let mut gpio27 = Input::new(p.PIN_27, Pull::Up);
+    let mut gpio28 = Input::new(p.PIN_28, Pull::Up);
+    let mut gpio29 = Input::new(p.PIN_29, Pull::Up);
     gpio0.set_schmitt(true);
     gpio1.set_schmitt(true);
+    gpio2.set_schmitt(true);
+    gpio3.set_schmitt(true);
+    gpio4.set_schmitt(true);
+    gpio5.set_schmitt(true);
+    gpio6.set_schmitt(true);
+    gpio7.set_schmitt(true);
+    gpio8.set_schmitt(true);
+    gpio9.set_schmitt(true);
+    gpio10.set_schmitt(true);
+    gpio11.set_schmitt(true);
+    gpio12.set_schmitt(true);
+    gpio13.set_schmitt(true);
+    gpio14.set_schmitt(true);
+    gpio15.set_schmitt(true);
+    gpio16.set_schmitt(true);
+    gpio17.set_schmitt(true);
+    gpio18.set_schmitt(true);
+    gpio19.set_schmitt(true);
+    gpio20.set_schmitt(true);
+    gpio21.set_schmitt(true);
+    gpio22.set_schmitt(true);
+    gpio23.set_schmitt(true);
+    gpio24.set_schmitt(true);
+    gpio25.set_schmitt(true);
+    gpio26.set_schmitt(true);
+    gpio27.set_schmitt(true);
+    gpio28.set_schmitt(true);
+    gpio29.set_schmitt(true);
 
     let (reader, mut writer) = hid.split();
 
     let now = Instant::now();
     let mut gpio_info = [
-        GpioInfo { buttons: [0, 0, 0, 1], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0, 0, 0, 2], last_time: now, previous_pressed: false }
+        GpioInfo { buttons: [0b0000_0001, 0b0000_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0010, 0b0000_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0100, 0b0000_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_1000, 0b0000_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0001_0000, 0b0000_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0010_0000, 0b0000_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0100_0000, 0b0000_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b1000_0000, 0b0000_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0000, 0b0000_0001, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0000, 0b0000_0010, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0000, 0b0000_0100, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0000, 0b0000_1000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0000, 0b0001_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0000, 0b0010_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0000, 0b0100_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0000, 0b1000_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0000_0001, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0000_0010, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0000_0100, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0000_1000, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0001_0000, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0010_0000, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0100_0000, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b1000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0000_0000, 0b0000_0100], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0000_0000, 0b0000_1000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0000_0000, 0b0001_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0000_0000, 0b0010_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0000_0000, 0b0100_0000], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0000_0000, 0b1000_0000], last_time: now, previous_pressed: false },
     ];
 
     // Do stuff with the class!
@@ -136,13 +220,73 @@ async fn main(_spawner: Spawner) {
             let (_, index) = embassy_futures::select::select_array([
                 gpio0.wait_for_any_edge(),
                 gpio1.wait_for_any_edge(),
+                gpio2.wait_for_any_edge(),
+                gpio3.wait_for_any_edge(),
+                gpio4.wait_for_any_edge(),
+                gpio5.wait_for_any_edge(),
+                gpio6.wait_for_any_edge(),
+                gpio7.wait_for_any_edge(),
+                gpio8.wait_for_any_edge(),
+                gpio9.wait_for_any_edge(),
+                gpio10.wait_for_any_edge(),
+                gpio11.wait_for_any_edge(),
+                gpio12.wait_for_any_edge(),
+                gpio13.wait_for_any_edge(),
+                gpio14.wait_for_any_edge(),
+                gpio15.wait_for_any_edge(),
+                gpio16.wait_for_any_edge(),
+                gpio17.wait_for_any_edge(),
+                gpio18.wait_for_any_edge(),
+                gpio19.wait_for_any_edge(),
+                gpio20.wait_for_any_edge(),
+                gpio21.wait_for_any_edge(),
+                gpio22.wait_for_any_edge(),
+                gpio23.wait_for_any_edge(),
+                gpio24.wait_for_any_edge(),
+                gpio25.wait_for_any_edge(),
+                gpio26.wait_for_any_edge(),
+                gpio27.wait_for_any_edge(),
+                gpio28.wait_for_any_edge(),
+                gpio29.wait_for_any_edge(),
             ]).await;
 
-            let pressed = [gpio0.is_low(), gpio1.is_low()];
+            let pressed = match index {
+                0 => gpio0.is_low(),
+                1 => gpio1.is_low(),
+                2 => gpio2.is_low(),
+                3 => gpio3.is_low(),
+                4 => gpio4.is_low(),
+                5 => gpio5.is_low(),
+                6 => gpio6.is_low(),
+                7 => gpio7.is_low(),
+                8 => gpio8.is_low(),
+                9 => gpio9.is_low(),
+                10 => gpio10.is_low(),
+                11 => gpio11.is_low(),
+                12 => gpio12.is_low(),
+                13 => gpio13.is_low(),
+                14 => gpio14.is_low(),
+                15 => gpio15.is_low(),
+                16 => gpio16.is_low(),
+                17 => gpio17.is_low(),
+                18 => gpio18.is_low(),
+                19 => gpio19.is_low(),
+                20 => gpio20.is_low(),
+                21 => gpio21.is_low(),
+                22 => gpio22.is_low(),
+                23 => gpio23.is_low(),
+                24 => gpio24.is_low(),
+                25 => gpio25.is_low(),
+                26 => gpio26.is_low(),
+                27 => gpio27.is_low(),
+                28 => gpio28.is_low(),
+                29 => gpio29.is_low(),
+                _ => false,
+            };
             gpio_info[index].last_time = Instant::now();
 
-            if gpio_info[index].previous_pressed != pressed[index] {
-                let report = if pressed[index] {
+            if gpio_info[index].previous_pressed != pressed {
+                let report = if pressed {
                     JoystickReport { buttons: gpio_info[index].buttons }
                 } else {
                     JoystickReport { buttons: [0, 0, 0, 0] }
@@ -152,7 +296,7 @@ async fn main(_spawner: Spawner) {
                     Err(e) => warn!("Failed to send report: {:?}", e),
                 };
             }
-            gpio_info[index].previous_pressed = pressed[index];
+            gpio_info[index].previous_pressed = pressed;
         }
     };
 
