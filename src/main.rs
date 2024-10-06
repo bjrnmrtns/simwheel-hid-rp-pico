@@ -14,8 +14,52 @@ use embassy_time::Instant;
 use embassy_usb::class::hid::{HidReaderWriter, ReportId, RequestHandler, State};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, Handler};
-use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
+use usbd_hid::descriptor::SerializedDescriptor;
 use {defmt_rtt as _, panic_probe as _};
+
+const JOYSTICK_HID_DESCRIPTOR: &[u8] = &[
+    0x05, 0x01,        // Usage Page (Generic Desktop Ctrls)
+    0x09, 0x04,        // Usage (Joystick)
+    0xA1, 0x01,        // Collection (Application)
+    
+    // Buttons
+    0x05, 0x09,        //   Usage Page (Button)
+    0x19, 0x01,        //   Usage Minimum (Button 1)
+    0x29, 0x1E,        //   Usage Maximum (Button 30) (0x1E = 30 in hex)
+    0x15, 0x00,        //   Logical Minimum (0)
+    0x25, 0x01,        //   Logical Maximum (1)
+    0x75, 0x01,        //   Report Size (1) - 1 bit per button
+    0x95, 0x1E,        //   Report Count (30) - 30 buttons
+    0x81, 0x02,        //   Input (Data,Var,Abs)
+
+    // Padding for unused bits (2 bits to make the byte boundary)
+    0x75, 0x02,        //   Report Size (2) - Padding
+    0x95, 0x01,        //   Report Count (1)
+    0x81, 0x03,        //   Input (Const,Var,Abs) - Padding bits (not used)
+
+    0xC0               // End Collection
+];
+
+// Define the report that will be sent over USB for the 30-button joystick (no axes)
+#[derive(Copy, Clone, Debug)]
+pub struct JoystickReport {
+    pub buttons: [u8; 4], // 30 buttons require 4 bytes (32 bits total, but only 30 used)
+}
+
+impl Default for JoystickReport {
+    fn default() -> Self {
+        JoystickReport {
+            buttons: [0; 4],
+        }
+    }
+}
+
+impl SerializedDescriptor for JoystickReport {
+    fn desc() -> &'static [u8] {
+        JOYSTICK_HID_DESCRIPTOR
+    }
+}
+
 
 bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => InterruptHandler<USB>;
@@ -23,8 +67,8 @@ bind_interrupts!(struct Irqs {
 
 struct GpioInfo {
     pub last_time: Instant,
-    pub keycode: u8,
-    pub previous: bool,
+    pub buttons: [u8; 4],
+    pub previous_pressed: bool,
 }
 
 #[embassy_executor::main]
@@ -61,7 +105,7 @@ async fn main(_spawner: Spawner) {
     builder.handler(&mut device_handler);
 
     let config = embassy_usb::class::hid::Config {
-        report_descriptor: KeyboardReport::desc(),
+        report_descriptor: JoystickReport::desc(),
         request_handler: None,
         poll_ms: 1,
         max_packet_size: 64,
@@ -81,8 +125,10 @@ async fn main(_spawner: Spawner) {
     let (reader, mut writer) = hid.split();
 
     let now = Instant::now();
-
-    let mut gpio_info = [GpioInfo { keycode: 0x04, last_time: now, previous: false }, GpioInfo { keycode: 0x05, last_time: now, previous: false }];
+    let mut gpio_info = [
+        GpioInfo { buttons: [0, 0, 0, 1], last_time: now, previous_pressed: false },
+        GpioInfo { buttons: [0, 0, 0, 2], last_time: now, previous_pressed: false }
+    ];
 
     // Do stuff with the class!
     let in_fut = async {
@@ -91,30 +137,22 @@ async fn main(_spawner: Spawner) {
                 gpio0.wait_for_any_edge(),
                 gpio1.wait_for_any_edge(),
             ]).await;
-            let now = Instant::now();
-            if (now - gpio_info[index].last_time).as_micros() > 2000 {
-                gpio_info[index].last_time = now;
-                let report = KeyboardReport {
-                    keycodes: [gpio_info[index].keycode, 0, 0, 0, 0, 0],
-                    leds: 0,
-                    modifier: 0,
-                    reserved: 0,
+
+            let pressed = [gpio0.is_low(), gpio1.is_low()];
+            gpio_info[index].last_time = Instant::now();
+
+            if gpio_info[index].previous_pressed != pressed[index] {
+                let report = if pressed[index] {
+                    JoystickReport { buttons: gpio_info[index].buttons }
+                } else {
+                    JoystickReport { buttons: [0, 0, 0, 0] }
                 };
-                match writer.write_serialize(&report).await {
-                    Ok(()) => {}
-                    Err(e) => warn!("Failed to send report: {:?}", e),
-                };
-                let report = KeyboardReport {
-                    keycodes: [0, 0, 0, 0, 0, 0],
-                    leds: 0,
-                    modifier: 0,
-                    reserved: 0,
-                };
-                match writer.write_serialize(&report).await {
+                match writer.write(&report.buttons).await {
                     Ok(()) => {}
                     Err(e) => warn!("Failed to send report: {:?}", e),
                 };
             }
+            gpio_info[index].previous_pressed = pressed[index];
         }
     };
 

@@ -40,3 +40,13 @@ $ cargo install flip-link
 udevil mount /dev/sdX1
 ```
 
+## Testing
+1. Install jstest
+```
+sudo apt-get install joystick
+```
+2. Run jstest
+```
+jstest --normal /dev/input/js0
+```
+
