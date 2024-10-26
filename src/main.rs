@@ -6,6 +6,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
+use embassy_rp::adc::Adc;
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Input, Pull};
 use embassy_rp::peripherals::USB;
@@ -147,6 +148,7 @@ async fn main(_spawner: Spawner) {
     let mut gpio27 = Input::new(p.PIN_27, Pull::Up);
     let mut gpio28 = Input::new(p.PIN_28, Pull::Up);
     let mut gpio29 = Input::new(p.PIN_29, Pull::Up);
+
     gpio0.set_schmitt(true);
     gpio1.set_schmitt(true);
     gpio2.set_schmitt(true);
@@ -177,7 +179,7 @@ async fn main(_spawner: Spawner) {
     gpio27.set_schmitt(true);
     gpio28.set_schmitt(true);
     gpio29.set_schmitt(true);
-
+    
     let (reader, mut writer) = hid.split();
 
     let now = Instant::now();
@@ -284,6 +286,8 @@ async fn main(_spawner: Spawner) {
                 _ => false,
             };
             gpio_info[index].last_time = Instant::now();
+
+//            gpio28
 
             if gpio_info[index].previous_pressed != pressed {
                 let report = if pressed {

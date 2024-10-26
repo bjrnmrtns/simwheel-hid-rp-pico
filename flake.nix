@@ -1,62 +1,35 @@
 {
-  description = "placepulse rust project";
-
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    utils.url = "github:numtide/flake-utils";
-    rust-overlay = {
-      url = "github:oxalica/rust-overlay";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    nixpkgs.url = github:NixOS/nixpkgs;
+    rust-overlay.url = "github:oxalica/rust-overlay";
   };
 
-  outputs = inputs@{ self, rust-overlay, nixpkgs, utils, ... }:
-  utils.lib.eachDefaultSystem (system: 
-  let
-    overlays = [ (import rust-overlay) ];
-    pkgs = import nixpkgs { inherit system overlays; };
+  outputs = { self, rust-overlay, nixpkgs }:
+    let
+      overlays = [ (import rust-overlay) ];
+      pkgs = import nixpkgs {
+        system = "x86_64-linux";
+        inherit overlays;
+      };
     in
     {
-      devShell = pkgs.mkShell {
+      packages.x86_64-linux.elf2uf2-rs = pkgs.callPackage ./elf2uf2.nix { };
+      devShell.x86_64-linux = pkgs.mkShell {
         buildInputs = [
-            (pkgs.rust-bin.stable.latest.default.override {
-                targets = ["thumbv6m-none-eabi"];
-                extensions = ["rust-src"];
-            })
-            pkgs.rust-analyzer
-            pkgs.flip-link
-            pkgs.probe-rs
-            pkgs.rustfmt
+          (pkgs.rust-bin.selectLatestNightlyWith (toolchain: toolchain.default.override {
+            targets = [ "thumbv6m-none-eabi" ];
+            extensions = [ "rust-src" ];
+          }))
+          pkgs.rust-analyzer
+          pkgs.flip-link
+          pkgs.probe-rs
+          self.packages.x86_64-linux.elf2uf2-rs
+          pkgs.rustfmt
         ];
-
         shellHook = ''
-          export PS1="(simwheel)$PS1";
-          echo "Welcome to the Rust dev environment!";
+            export PS1="(simwheel)$PS1";
+            echo "Welcome to the Rust dev environment!";
         '';
       };
-
-      packages.default = pkgs.stdenv.mkDerivation {
-        pname = "simwheel";
-        version = "0.1.0";
-        src = ./.;
-        buildInputs = [
-            (pkgs.rust-bin.stable.latest.default.override {
-                targets = ["thumbv6m-none-eabi"];
-                extensions = ["rust-src"];
-            })
-            pkgs.rust-analyzer
-            pkgs.flip-link
-            pkgs.probe-rs
-            pkgs.rustfmt
-        ];
-        buildPhase = ''
-          cargo build --release
-        '';
-        installPhase = ''
-          mkdir -p $out/bin
-          cp target/release/placepulse $out/bin/
-        '';
-      };
-    });
+    };
 }
-
