@@ -4,9 +4,10 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use defmt::*;
+use core::mem;
+use core::slice;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_rp::adc::Adc;
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Input, Pull};
 use embassy_rp::peripherals::USB;
@@ -18,10 +19,40 @@ use embassy_usb::{Builder, Config, Handler};
 use usbd_hid::descriptor::SerializedDescriptor;
 use {defmt_rtt as _, panic_probe as _};
 
+fn struct_to_bytes(report: &JoystickReport) -> &[u8] {
+    unsafe {
+        // Get a pointer to the struct and cast it to a pointer to u8
+        let ptr = report as *const _ as *const u8;
+        // Create a slice from the pointer with the size of the struct
+        slice::from_raw_parts(ptr, mem::size_of::<JoystickReport>())
+    }
+}
+
 const JOYSTICK_HID_DESCRIPTOR: &[u8] = &[
     0x05, 0x01,        // Usage Page (Generic Desktop Ctrls)
     0x09, 0x04,        // Usage (Joystick)
     0xA1, 0x01,        // Collection (Application)
+    
+    // Throttle Control
+    // Analog Controls 0
+    0x09, 0x30,         // Usage (X Axis)
+    0x15, 0x81,         // Logical Minimum (-127)
+    0x25, 0x7F,         // Logical Maximum (127)
+    0x35, 0x00,         // Physical Minimum (0)
+    0x45, 0xFF,         // Physical Maximum (255)
+    0x75, 0x08,         // Report Size (8 bits)
+    0x95, 0x01,         // Report Count (1)
+    0x81, 0x02,         // Input (Data, Var, Abs) - 1 byte axis
+
+    // Analog Control 1
+    0x09, 0x31,         // Usage (Y Axis)
+    0x15, 0x81,         // Logical Minimum (-127)
+    0x25, 0x7F,         // Logical Maximum (127)
+    0x35, 0x00,         // Physical Minimum (0)
+    0x45, 0xFF,         // Physical Maximum (255)
+    0x75, 0x08,         // Report Size (8 bits)
+    0x95, 0x01,         // Report Count (1)
+    0x81, 0x02,         // Input (Data, Var, Abs) - 1 byte axis
     
     // Buttons
     0x05, 0x09,        //   Usage Page (Button)
@@ -43,13 +74,18 @@ const JOYSTICK_HID_DESCRIPTOR: &[u8] = &[
 
 // Define the report that will be sent over USB for the 30-button joystick (no axes)
 #[derive(Copy, Clone, Debug)]
+#[repr(C)]
 pub struct JoystickReport {
+    pub throttle_0: i8,
+    pub throttle_1: i8,
     pub buttons: [u8; 4], // 30 buttons require 4 bytes (32 bits total, but only 30 used)
 }
 
 impl Default for JoystickReport {
     fn default() -> Self {
         JoystickReport {
+            throttle_0: 0,
+            throttle_1: 0,
             buttons: [0; 4],
         }
     }
@@ -287,15 +323,13 @@ async fn main(_spawner: Spawner) {
             };
             gpio_info[index].last_time = Instant::now();
 
-//            gpio28
-
             if gpio_info[index].previous_pressed != pressed {
                 let report = if pressed {
-                    JoystickReport { buttons: gpio_info[index].buttons }
+                    JoystickReport { throttle_0: -127, throttle_1: 127,  buttons: gpio_info[index].buttons }
                 } else {
-                    JoystickReport { buttons: [0, 0, 0, 0] }
+                    JoystickReport { throttle_0: 0, throttle_1: 0, buttons: [0, 0, 0, 0] }
                 };
-                match writer.write(&report.buttons).await {
+                match writer.write(struct_to_bytes(&report)).await {
                     Ok(()) => {}
                     Err(e) => warn!("Failed to send report: {:?}", e),
                 };
