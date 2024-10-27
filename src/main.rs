@@ -11,13 +11,17 @@ use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Input, Pull};
 use embassy_rp::peripherals::USB;
-use embassy_rp::usb::{Driver, InterruptHandler};
-use embassy_time::Instant;
+use embassy_rp::usb::Driver;
 use embassy_usb::class::hid::{HidReaderWriter, ReportId, RequestHandler, State};
 use embassy_usb::control::OutResponse;
-use embassy_usb::{Builder, Config, Handler};
+use embassy_usb::{Builder, Handler};
 use usbd_hid::descriptor::SerializedDescriptor;
 use {defmt_rtt as _, panic_probe as _};
+
+struct Range {
+    pub min: f32,
+    pub max: f32,
+}
 
 fn struct_to_bytes(report: &JoystickReport) -> &[u8] {
     unsafe {
@@ -26,6 +30,14 @@ fn struct_to_bytes(report: &JoystickReport) -> &[u8] {
         // Create a slice from the pointer with the size of the struct
         slice::from_raw_parts(ptr, mem::size_of::<JoystickReport>())
     }
+}
+
+fn convert_adc_to_hid_axis_value(adc_value: u16) -> i8 {
+    let range = Range { min: 0.5, max: 2.8 };
+    let voltage = (adc_value as f32 / 4095.0) * 3.3;
+    let voltage = voltage - range.min;
+    let mapped_value = -127.0 + ((voltage / (range.max - range.min)) * 254.0);
+    mapped_value as i8
 }
 
 const JOYSTICK_HID_DESCRIPTOR: &[u8] = &[
@@ -54,18 +66,28 @@ const JOYSTICK_HID_DESCRIPTOR: &[u8] = &[
     0x95, 0x01,         // Report Count (1)
     0x81, 0x02,         // Input (Data, Var, Abs) - 1 byte axis
     
+    // Analog Control 2
+    0x09, 0x32,         // Usage (Z Axis)
+    0x15, 0x81,         // Logical Minimum (-127)
+    0x25, 0x7F,         // Logical Maximum (127)
+    0x35, 0x00,         // Physical Minimum (0)
+    0x45, 0xFF,         // Physical Maximum (255)
+    0x75, 0x08,         // Report Size (8 bits)
+    0x95, 0x01,         // Report Count (1)
+    0x81, 0x02,         // Input (Data, Var, Abs) - 1 byte axis
+    
     // Buttons
     0x05, 0x09,        //   Usage Page (Button)
     0x19, 0x01,        //   Usage Minimum (Button 1)
-    0x29, 0x1E,        //   Usage Maximum (Button 30) (0x1E = 30 in hex)
+    0x29, 0x17,        //   Usage Maximum (Button 23) (0x1E = 30 in hex)
     0x15, 0x00,        //   Logical Minimum (0)
     0x25, 0x01,        //   Logical Maximum (1)
     0x75, 0x01,        //   Report Size (1) - 1 bit per button
-    0x95, 0x1E,        //   Report Count (30) - 30 buttons
+    0x95, 0x17,        //   Report Count (23) - 23 buttons
     0x81, 0x02,        //   Input (Data,Var,Abs)
 
-    // Padding for unused bits (2 bits to make the byte boundary)
-    0x75, 0x02,        //   Report Size (2) - Padding
+    // Padding for unused bits (1 bits to make the byte boundary)
+    0x75, 0x01,        //   Report Size (1) - Padding
     0x95, 0x01,        //   Report Count (1)
     0x81, 0x03,        //   Input (Const,Var,Abs) - Padding bits (not used)
 
@@ -73,20 +95,22 @@ const JOYSTICK_HID_DESCRIPTOR: &[u8] = &[
 ];
 
 // Define the report that will be sent over USB for the 30-button joystick (no axes)
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(C)]
 pub struct JoystickReport {
-    pub throttle_0: i8,
-    pub throttle_1: i8,
-    pub buttons: [u8; 4], // 30 buttons require 4 bytes (32 bits total, but only 30 used)
+    pub axis_x: i8,
+    pub axis_y: i8,
+    pub axis_z: i8,
+    pub buttons: [u8; 3], // 32 buttons one u32 (32 bits total, but only 23 used)
 }
 
 impl Default for JoystickReport {
     fn default() -> Self {
         JoystickReport {
-            throttle_0: 0,
-            throttle_1: 0,
-            buttons: [0; 4],
+            axis_x: -127,
+            axis_y: -127,
+            axis_z: -127,
+            buttons: [0, 0, 0],
         }
     }
 }
@@ -98,23 +122,28 @@ impl SerializedDescriptor for JoystickReport {
 }
 
 
-bind_interrupts!(struct Irqs {
-    USBCTRL_IRQ => InterruptHandler<USB>;
+bind_interrupts!(struct IrqsUsb {
+    USBCTRL_IRQ => embassy_rp::usb::InterruptHandler<USB>;
 });
 
-struct GpioInfo {
-    pub last_time: Instant,
-    pub buttons: [u8; 4],
-    pub previous_pressed: bool,
+bind_interrupts!(struct IrqsAdc {
+    ADC_IRQ_FIFO => embassy_rp::adc::InterruptHandler;
+});
+
+struct Button {
+    pub input: Input<'static>,
 }
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     // Initialise Peripherals
     let p = embassy_rp::init(Default::default());
+    let adc_config = embassy_rp::adc::Config::default();
+    
+    let mut adc = embassy_rp::adc::Adc::new(p.ADC, IrqsAdc, adc_config);
 
-    let driver = Driver::new(p.USB, Irqs);
-    let mut config = Config::new(0xc0de, 0xcafe);
+    let driver = Driver::new(p.USB, IrqsUsb);
+    let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
     config.manufacturer = Some("Bor(TM)");
     config.product = Some("Simwheel");
     config.serial_number = Some("0xCAFEBABE");
@@ -154,187 +183,69 @@ async fn main(_spawner: Spawner) {
         
     let usb_fut = usb.run();
 
-    let mut gpio0 = Input::new(p.PIN_0, Pull::Up);
-    let mut gpio1 = Input::new(p.PIN_1, Pull::Up);
-    let mut gpio2 = Input::new(p.PIN_2, Pull::Up);
-    let mut gpio3 = Input::new(p.PIN_3, Pull::Up);
-    let mut gpio4 = Input::new(p.PIN_4, Pull::Up);
-    let mut gpio5 = Input::new(p.PIN_5, Pull::Up);
-    let mut gpio6 = Input::new(p.PIN_6, Pull::Up);
-    let mut gpio7 = Input::new(p.PIN_7, Pull::Up);
-    let mut gpio8 = Input::new(p.PIN_8, Pull::Up);
-    let mut gpio9 = Input::new(p.PIN_9, Pull::Up);
-    let mut gpio10 = Input::new(p.PIN_10, Pull::Up);
-    let mut gpio11 = Input::new(p.PIN_11, Pull::Up);
-    let mut gpio12 = Input::new(p.PIN_12, Pull::Up);
-    let mut gpio13 = Input::new(p.PIN_13, Pull::Up);
-    let mut gpio14 = Input::new(p.PIN_14, Pull::Up);
-    let mut gpio15 = Input::new(p.PIN_15, Pull::Up);
-    let mut gpio16 = Input::new(p.PIN_16, Pull::Up);
-    let mut gpio17 = Input::new(p.PIN_17, Pull::Up);
-    let mut gpio18 = Input::new(p.PIN_18, Pull::Up);
-    let mut gpio19 = Input::new(p.PIN_19, Pull::Up);
-    let mut gpio20 = Input::new(p.PIN_20, Pull::Up);
-    let mut gpio21 = Input::new(p.PIN_21, Pull::Up);
-    let mut gpio22 = Input::new(p.PIN_22, Pull::Up);
-    let mut gpio23 = Input::new(p.PIN_23, Pull::Up);
-    let mut gpio24 = Input::new(p.PIN_24, Pull::Up);
-    let mut gpio25 = Input::new(p.PIN_25, Pull::Up);
-    let mut gpio26 = Input::new(p.PIN_26, Pull::Up);
-    let mut gpio27 = Input::new(p.PIN_27, Pull::Up);
-    let mut gpio28 = Input::new(p.PIN_28, Pull::Up);
-    let mut gpio29 = Input::new(p.PIN_29, Pull::Up);
-
-    gpio0.set_schmitt(true);
-    gpio1.set_schmitt(true);
-    gpio2.set_schmitt(true);
-    gpio3.set_schmitt(true);
-    gpio4.set_schmitt(true);
-    gpio5.set_schmitt(true);
-    gpio6.set_schmitt(true);
-    gpio7.set_schmitt(true);
-    gpio8.set_schmitt(true);
-    gpio9.set_schmitt(true);
-    gpio10.set_schmitt(true);
-    gpio11.set_schmitt(true);
-    gpio12.set_schmitt(true);
-    gpio13.set_schmitt(true);
-    gpio14.set_schmitt(true);
-    gpio15.set_schmitt(true);
-    gpio16.set_schmitt(true);
-    gpio17.set_schmitt(true);
-    gpio18.set_schmitt(true);
-    gpio19.set_schmitt(true);
-    gpio20.set_schmitt(true);
-    gpio21.set_schmitt(true);
-    gpio22.set_schmitt(true);
-    gpio23.set_schmitt(true);
-    gpio24.set_schmitt(true);
-    gpio25.set_schmitt(true);
-    gpio26.set_schmitt(true);
-    gpio27.set_schmitt(true);
-    gpio28.set_schmitt(true);
-    gpio29.set_schmitt(true);
-    
     let (reader, mut writer) = hid.split();
 
-    let now = Instant::now();
-    let mut gpio_info = [
-        GpioInfo { buttons: [0b0000_0001, 0b0000_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0010, 0b0000_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0100, 0b0000_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_1000, 0b0000_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0001_0000, 0b0000_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0010_0000, 0b0000_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0100_0000, 0b0000_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b1000_0000, 0b0000_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0000, 0b0000_0001, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0000, 0b0000_0010, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0000, 0b0000_0100, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0000, 0b0000_1000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0000, 0b0001_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0000, 0b0010_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0000, 0b0100_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0000, 0b1000_0000, 0b0000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0000_0001, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0000_0010, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0000_0100, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0000_1000, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0001_0000, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0010_0000, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0100_0000, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b1000_0000, 0b0000_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0000_0000, 0b0000_0100], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0000_0000, 0b0000_1000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0000_0000, 0b0001_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0000_0000, 0b0010_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0000_0000, 0b0100_0000], last_time: now, previous_pressed: false },
-        GpioInfo { buttons: [0b0000_0000, 0b0000_0000, 0b0000_0000, 0b1000_0000], last_time: now, previous_pressed: false },
+    let mut buttons_state = [
+        Button { input: Input::new(p.PIN_0, Pull::Up), },
+        Button { input: Input::new(p.PIN_1, Pull::Up), },
+        Button { input: Input::new(p.PIN_2, Pull::Up), },
+        Button { input: Input::new(p.PIN_3, Pull::Up), },
+        Button { input: Input::new(p.PIN_4, Pull::Up), },
+        Button { input: Input::new(p.PIN_5, Pull::Up), },
+        Button { input: Input::new(p.PIN_6, Pull::Up), },
+        Button { input: Input::new(p.PIN_7, Pull::Up), },
+        Button { input: Input::new(p.PIN_8, Pull::Up), },
+        Button { input: Input::new(p.PIN_9, Pull::Up), },
+        Button { input: Input::new(p.PIN_10, Pull::Up), },
+        Button { input: Input::new(p.PIN_11, Pull::Up), },
+        Button { input: Input::new(p.PIN_12, Pull::Up), },
+        Button { input: Input::new(p.PIN_13, Pull::Up), },
+        Button { input: Input::new(p.PIN_14, Pull::Up), },
+        Button { input: Input::new(p.PIN_15, Pull::Up), },
+        Button { input: Input::new(p.PIN_16, Pull::Up), },
+        Button { input: Input::new(p.PIN_17, Pull::Up), },
+        Button { input: Input::new(p.PIN_18, Pull::Up), },
+        Button { input: Input::new(p.PIN_19, Pull::Up), },
+        Button { input: Input::new(p.PIN_20, Pull::Up), },
+        Button { input: Input::new(p.PIN_21, Pull::Up), },
+        Button { input: Input::new(p.PIN_22, Pull::Up), },
     ];
 
-    // Do stuff with the class!
+    let mut analog_p26 = embassy_rp::adc::Channel::new_pin(p.PIN_26, Pull::Down);
+    let mut analog_p27 = embassy_rp::adc::Channel::new_pin(p.PIN_27, Pull::Down);
+    let mut analog_p28 = embassy_rp::adc::Channel::new_pin(p.PIN_28, Pull::Down);
+
+    for button in buttons_state.iter_mut() {
+        button.input.set_schmitt(true);
+    }
+
     let in_fut = async {
         loop {
-            let (_, index) = embassy_futures::select::select_array([
-                gpio0.wait_for_any_edge(),
-                gpio1.wait_for_any_edge(),
-                gpio2.wait_for_any_edge(),
-                gpio3.wait_for_any_edge(),
-                gpio4.wait_for_any_edge(),
-                gpio5.wait_for_any_edge(),
-                gpio6.wait_for_any_edge(),
-                gpio7.wait_for_any_edge(),
-                gpio8.wait_for_any_edge(),
-                gpio9.wait_for_any_edge(),
-                gpio10.wait_for_any_edge(),
-                gpio11.wait_for_any_edge(),
-                gpio12.wait_for_any_edge(),
-                gpio13.wait_for_any_edge(),
-                gpio14.wait_for_any_edge(),
-                gpio15.wait_for_any_edge(),
-                gpio16.wait_for_any_edge(),
-                gpio17.wait_for_any_edge(),
-                gpio18.wait_for_any_edge(),
-                gpio19.wait_for_any_edge(),
-                gpio20.wait_for_any_edge(),
-                gpio21.wait_for_any_edge(),
-                gpio22.wait_for_any_edge(),
-                gpio23.wait_for_any_edge(),
-                gpio24.wait_for_any_edge(),
-                gpio25.wait_for_any_edge(),
-                gpio26.wait_for_any_edge(),
-                gpio27.wait_for_any_edge(),
-                gpio28.wait_for_any_edge(),
-                gpio29.wait_for_any_edge(),
-            ]).await;
+            let p_26_adc_value = adc.read(&mut analog_p26).await.unwrap();
+            let p_27_adc_value = adc.read(&mut analog_p27).await.unwrap();
+            let p_28_adc_value = adc.read(&mut analog_p28).await.unwrap();
+            let axis_x = convert_adc_to_hid_axis_value(p_26_adc_value); 
+            let axis_y = convert_adc_to_hid_axis_value(p_27_adc_value); 
+            let axis_z = convert_adc_to_hid_axis_value(p_28_adc_value); 
 
-            let pressed = match index {
-                0 => gpio0.is_low(),
-                1 => gpio1.is_low(),
-                2 => gpio2.is_low(),
-                3 => gpio3.is_low(),
-                4 => gpio4.is_low(),
-                5 => gpio5.is_low(),
-                6 => gpio6.is_low(),
-                7 => gpio7.is_low(),
-                8 => gpio8.is_low(),
-                9 => gpio9.is_low(),
-                10 => gpio10.is_low(),
-                11 => gpio11.is_low(),
-                12 => gpio12.is_low(),
-                13 => gpio13.is_low(),
-                14 => gpio14.is_low(),
-                15 => gpio15.is_low(),
-                16 => gpio16.is_low(),
-                17 => gpio17.is_low(),
-                18 => gpio18.is_low(),
-                19 => gpio19.is_low(),
-                20 => gpio20.is_low(),
-                21 => gpio21.is_low(),
-                22 => gpio22.is_low(),
-                23 => gpio23.is_low(),
-                24 => gpio24.is_low(),
-                25 => gpio25.is_low(),
-                26 => gpio26.is_low(),
-                27 => gpio27.is_low(),
-                28 => gpio28.is_low(),
-                29 => gpio29.is_low(),
-                _ => false,
-            };
-            gpio_info[index].last_time = Instant::now();
+            let mut buttons: [u8; 3] = [0, 0, 0];
 
-            if gpio_info[index].previous_pressed != pressed {
-                let report = if pressed {
-                    JoystickReport { throttle_0: -127, throttle_1: 127,  buttons: gpio_info[index].buttons }
-                } else {
-                    JoystickReport { throttle_0: 0, throttle_1: 0, buttons: [0, 0, 0, 0] }
-                };
-                match writer.write(struct_to_bytes(&report)).await {
-                    Ok(()) => {}
-                    Err(e) => warn!("Failed to send report: {:?}", e),
-                };
+            for (index, button) in buttons_state.iter_mut().enumerate(){
+                let byte_nr = index / 8;
+                let bit_nr = index % 8;
+                let pressed = button.input.is_low();
+                if pressed {
+                    buttons[byte_nr] += 0x1 << bit_nr;
+                }
             }
-            gpio_info[index].previous_pressed = pressed;
+
+            let report = JoystickReport { axis_x, axis_y, axis_z,
+                 buttons,};
+
+            match writer.write(struct_to_bytes(&report)).await {
+                Ok(()) => {}
+                Err(e) => warn!("Failed to send report: {:?}", e),
+            };
         }
     };
 
