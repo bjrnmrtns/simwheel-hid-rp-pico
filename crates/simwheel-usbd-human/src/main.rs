@@ -66,9 +66,9 @@ fn main() -> ! {
     //https://pid.codes
     let mut usb_dev = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x1209, 0x0001))
         .strings(&[StringDescriptors::default()
-            .manufacturer("usbd-human-interface-device")
-            .product("Rusty joystick")
-            .serial_number("TEST")])
+            .manufacturer("Bor(TM)")
+            .product("Simwheel")
+            .serial_number("46")])
         .unwrap()
         .build();
 
@@ -121,12 +121,12 @@ fn main() -> ! {
 fn get_report(pins: &mut [Pin<DynPinId, FunctionSioInput, PullUp>; 23]) -> JoystickReport {
     // Read out 8 buttons first
     let mut buttons = 0;
-    for (idx, pin) in pins[..8].iter_mut().enumerate() {
+    for (idx, pin) in pins[0..23].iter_mut().enumerate() {
         if pin.is_low().unwrap() {
             buttons |= 1 << idx;
         }
     }
-
+/*
     // We're using digital switches in a D-PAD style configuration
     //    10
     //  8    9
@@ -147,6 +147,7 @@ fn get_report(pins: &mut [Pin<DynPinId, FunctionSioInput, PullUp>; 23]) -> Joyst
     } else {
         0 // center
     };
+*/
 
-    JoystickReport { buttons, x, y }
+    JoystickReport { buttons, x: 0, y: 0 }
 }
