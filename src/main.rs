@@ -143,11 +143,11 @@ async fn main(_spawner: Spawner) {
     let mut adc = embassy_rp::adc::Adc::new(p.ADC, IrqsAdc, adc_config);
 
     let driver = Driver::new(p.USB, IrqsUsb);
-    let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
+    let mut config = embassy_usb::Config::new(0xbda, 0x5412);
     config.manufacturer = Some("Bor(TM)");
     config.product = Some("Simwheel");
     config.serial_number = Some("0xCAFEBABE");
-    config.max_power = 100;
+    config.max_power = 500;
     config.max_packet_size_0 = 64;
 
     let mut config_descriptor = [0; 256];
@@ -221,12 +221,14 @@ async fn main(_spawner: Spawner) {
 
     let in_fut = async {
         loop {
-            let p_26_adc_value = adc.read(&mut analog_p26).await.unwrap();
-            let p_27_adc_value = adc.read(&mut analog_p27).await.unwrap();
-            let p_28_adc_value = adc.read(&mut analog_p28).await.unwrap();
-            let axis_x = convert_adc_to_hid_axis_value(p_26_adc_value); 
-            let axis_y = convert_adc_to_hid_axis_value(p_27_adc_value); 
-            let axis_z = convert_adc_to_hid_axis_value(p_28_adc_value); 
+            embassy_time::Timer::after_millis(10).await;
+            //let p_26_adc_value = adc.read(&mut analog_p26).await.unwrap();
+            //let p_27_adc_value = adc.read(&mut analog_p27).await.unwrap();
+            //let p_28_adc_value = adc.read(&mut analog_p28).await.unwrap();
+            //let axis_x = convert_adc_to_hid_axis_value(p_26_adc_value); 
+            //let axis_y = convert_adc_to_hid_axis_value(p_27_adc_value); 
+            //let axis_z = convert_adc_to_hid_axis_value(p_28_adc_value); 
+            
 
             let mut buttons: [u8; 3] = [0, 0, 0];
 
@@ -239,7 +241,7 @@ async fn main(_spawner: Spawner) {
                 }
             }
 
-            let report = JoystickReport { axis_x, axis_y, axis_z,
+            let report = JoystickReport { axis_x: 0, axis_y: 0, axis_z: 0,
                  buttons,};
 
             match writer.write(struct_to_bytes(&report)).await {
