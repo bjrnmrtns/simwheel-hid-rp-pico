@@ -12,7 +12,7 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Input, Pull};
 use embassy_rp::peripherals::USB;
 use embassy_rp::usb::Driver;
-use embassy_usb::class::hid::{HidReaderWriter, ReportId, RequestHandler, State};
+use embassy_usb::class::hid::{HidReaderWriter, ReportId, State};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Handler};
 use usbd_hid::descriptor::SerializedDescriptor;
@@ -149,6 +149,12 @@ async fn main(_spawner: Spawner) {
     config.serial_number = Some("0xCAFEBABE");
     config.max_power = 500;
     config.max_packet_size_0 = 64;
+    config.device_class = 0x03;
+    config.device_sub_class = 0x00;
+    config.device_protocol = 0x01;
+    config.supports_remote_wakeup = true;
+    config.self_powered = false;
+    config.device_release = 0x0200;
 
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
@@ -260,7 +266,7 @@ async fn main(_spawner: Spawner) {
 
 struct MyRequestHandler {}
 
-impl RequestHandler for MyRequestHandler {
+impl embassy_usb::class::hid::RequestHandler for MyRequestHandler {
     fn get_report(&mut self, id: ReportId, _buf: &mut [u8]) -> Option<usize> {
         info!("Get report for {:?}", id);
         None
