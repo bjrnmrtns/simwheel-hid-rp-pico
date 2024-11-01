@@ -73,26 +73,11 @@ fn main() -> ! {
         .build();
 
     //GPIO pins
-    let mut input_pins: [Pin<DynPinId, FunctionSioInput, PullUp>; 23] = [
+    let mut input_pins: [Pin<DynPinId, FunctionSioInput, PullUp>; 8] = [
         pins.gpio0.into_pull_up_input().into_dyn_pin(),
         pins.gpio1.into_pull_up_input().into_dyn_pin(),
         pins.gpio2.into_pull_up_input().into_dyn_pin(),
         pins.gpio3.into_pull_up_input().into_dyn_pin(),
-        pins.gpio4.into_pull_up_input().into_dyn_pin(),
-        pins.gpio5.into_pull_up_input().into_dyn_pin(),
-        pins.gpio6.into_pull_up_input().into_dyn_pin(),
-        pins.gpio7.into_pull_up_input().into_dyn_pin(),
-        pins.gpio8.into_pull_up_input().into_dyn_pin(),
-        pins.gpio9.into_pull_up_input().into_dyn_pin(),
-        pins.gpio10.into_pull_up_input().into_dyn_pin(),
-        pins.gpio11.into_pull_up_input().into_dyn_pin(),
-        pins.gpio12.into_pull_up_input().into_dyn_pin(),
-        pins.gpio13.into_pull_up_input().into_dyn_pin(),
-        pins.gpio14.into_pull_up_input().into_dyn_pin(),
-        pins.gpio15.into_pull_up_input().into_dyn_pin(),
-        pins.gpio16.into_pull_up_input().into_dyn_pin(),
-        pins.gpio17.into_pull_up_input().into_dyn_pin(),
-        pins.gpio18.into_pull_up_input().into_dyn_pin(),
         pins.gpio19.into_pull_up_input().into_dyn_pin(),
         pins.gpio20.into_pull_up_input().into_dyn_pin(),
         pins.gpio21.into_pull_up_input().into_dyn_pin(),
@@ -118,10 +103,10 @@ fn main() -> ! {
     }
 }
 
-fn get_report(pins: &mut [Pin<DynPinId, FunctionSioInput, PullUp>; 23]) -> JoystickReport {
+fn get_report(pins: &mut [Pin<DynPinId, FunctionSioInput, PullUp>; 8]) -> JoystickReport {
     // Read out 8 buttons first
     let mut buttons = 0;
-    for (idx, pin) in pins[0..23].iter_mut().enumerate() {
+    for (idx, pin) in pins[0..8].iter_mut().enumerate() {
         if pin.is_low().unwrap() {
             buttons |= 1 << idx;
         }
