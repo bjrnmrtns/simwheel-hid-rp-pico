@@ -66,9 +66,9 @@ fn main() -> ! {
     //https://pid.codes
     let mut usb_dev = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x1209, 0x0001))
         .strings(&[StringDescriptors::default()
-            .manufacturer("Bor(TM)")
-            .product("Simwheel")
-            .serial_number("46")])
+            .manufacturer("usbd-human-interface-device")
+            .product("Rusty joystick")
+            .serial_number("TEST")])
         .unwrap()
         .build();
 
